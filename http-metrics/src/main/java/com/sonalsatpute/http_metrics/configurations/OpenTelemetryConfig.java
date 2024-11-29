@@ -5,6 +5,7 @@ import io.opentelemetry.api.metrics.MeterProvider;
 import io.opentelemetry.exporter.otlp.metrics.OtlpGrpcMetricExporter;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.metrics.SdkMeterProvider;
+import io.opentelemetry.sdk.metrics.export.MetricExporter;
 import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import io.opentelemetry.sdk.resources.Resource;
 import org.springframework.context.annotation.Bean;
@@ -23,13 +24,14 @@ public class OpenTelemetryConfig {
                                         .put("service.name", "http-metrics")
                                         .build());
 
-        OtlpGrpcMetricExporter metricExporter = OtlpGrpcMetricExporter.builder()
+        MetricExporter metricExporter = OtlpGrpcMetricExporter.builder()
                 .setEndpoint("http://localhost:4317")
                 .build();
 
         SdkMeterProvider meterProvider = SdkMeterProvider.builder()
                 .setResource(resource)
                 .registerMetricReader(PeriodicMetricReader.builder(metricExporter).build())
+
                 .build();
 
         OpenTelemetrySdk openTelemetry = OpenTelemetrySdk.builder()
