@@ -2,23 +2,29 @@ package com.sonalsatpute.http_metrics.configurations;
 
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.AttributesBuilder;
-import io.opentelemetry.api.metrics.DoubleHistogram;
+import io.opentelemetry.api.metrics.LongHistogram;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.api.metrics.MeterProvider;
 import io.opentelemetry.api.common.Attributes;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
-import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.HandlerMapping;
 
+import java.util.Arrays;
 import java.util.List;
 
 
 @Component
 public class MetricsInterceptor implements HandlerInterceptor {
 
-    // Helper constants
+    private static final String REQUEST_START_TIME = "request_start_time";
+    private static final String REQUEST_ROUTE_TEMPLATE = "request_route_template";
+
+
     private static final AttributeKey<String> HTTP_REQUEST_METHOD = AttributeKey.stringKey("http.request.method");
     private static final AttributeKey<String> HTTP_ROUTE = AttributeKey.stringKey("http.route");
     private static final AttributeKey<Long> HTTP_RESPONSE_STATUS_CODE = AttributeKey.longKey("http.response.status_code");
@@ -40,6 +46,7 @@ public class MetricsInterceptor implements HandlerInterceptor {
     private static final String SITE_ID_HEADER = "X-SiteId";
 
     private static final Attributes environmentAttributes;
+    private static final Logger log = LoggerFactory.getLogger(MetricsInterceptor.class);
 
     static {
         environmentAttributes = Attributes.of(
@@ -48,40 +55,42 @@ public class MetricsInterceptor implements HandlerInterceptor {
                 NAMESPACE_NAME, "local-development");
     }
 
-    // Helper function
+    private final LongHistogram durationHistogram;
 
+    //This range is designed to capture short to moderately long request durations, from 0 milliseconds up to 10,000 milliseconds (10 seconds).
+    List<Long> bucketBoundaries = Arrays.asList(0L, 5L, 10L, 25L, 50L, 75L, 100L, 250L, 500L, 750L, 1000L, 2500L, 5000L, 7500L, 10000L);
 
-    private final Meter meter;
 
     public MetricsInterceptor(MeterProvider meterProvider) {
-        this.meter = meterProvider.get("http.server.request");
+        Meter meter = meterProvider.get("http.server.request");
+        this.durationHistogram = buildDurationHistogram(meter);
+    }
+
+
+    private LongHistogram buildDurationHistogram(Meter meter) {
+
+        return meter.histogramBuilder("http.server.duration")
+                .setDescription("Duration of HTTP requests")
+                .setUnit("ms")
+                .ofLongs()
+                .setExplicitBucketBoundariesAdvice(bucketBoundaries)
+                .build();
     }
 
     @Override
-    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
-        request.setAttribute("startTime", System.currentTimeMillis());
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        request.setAttribute(REQUEST_START_TIME, System.currentTimeMillis());
+        request.setAttribute(REQUEST_ROUTE_TEMPLATE, request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE));
+
         return true;
     }
 
     @Override
-    public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler, ModelAndView modelAndView) throws Exception {
-        // Implementation can be added if needed
-    }
-
-    @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) throws Exception {
-        long startTime = (long) request.getAttribute("startTime");
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
+        long startTime = (long) request.getAttribute(REQUEST_START_TIME);
         long duration = System.currentTimeMillis() - startTime;
 
-        DoubleHistogram histogram = meter.histogramBuilder("http.server.request.duration")
-                .setDescription("Request duration in milliseconds")
-                .setUnit("ms")
-                .setExplicitBucketBoundariesAdvice(List.of(0.005d, 0.01d, 0.025d, 0.05d, 0.075d, 0.1d, 0.25d, 0.5d, 0.75d, 1d, 2.5d, 5d, 7.5d, 10d))
-                .build();
-
-        System.out.println("Duration: " + duration + "ms");
-
-        histogram.record(duration, httpAttributes(request, response, getErrorType(response, ex)));
+        this.durationHistogram.record(duration, httpAttributes(request, response, getErrorType(response, ex)));
     }
 
     private Attributes httpAttributes(
@@ -91,7 +100,7 @@ public class MetricsInterceptor implements HandlerInterceptor {
     ) {
         return Attributes.builder()
                 .put(HTTP_REQUEST_METHOD, request.getMethod())
-                .put(HTTP_ROUTE, request.getRequestURI())
+                .put(HTTP_ROUTE, (String) request.getAttribute(REQUEST_ROUTE_TEMPLATE))
                 .put(HTTP_RESPONSE_STATUS_CODE, response.getStatus())
                 .put(NETWORK_PROTOCOL_VERSION, request.getProtocol())
                 .put(URL_SCHEME, request.getScheme())
@@ -135,31 +144,18 @@ public class MetricsInterceptor implements HandlerInterceptor {
 //    }
 
     private static String getErrorType(HttpServletResponse response, Exception ex) {
-        String errorType = null;
-
-        if (ex != null) {
-            errorType = ex.getClass().getSimpleName();
-        } else if (response.getStatus() == 500) {
-            errorType = "InternalServerError";
-        } else if (response.getStatus() == 408) {
-            errorType = "Timeout";
-        } else if (response.getStatus() == 404) {
-            errorType = "NameResolutionError";
-        } else if (response.getStatus() == 400) {
-            errorType = "BadRequest";
-        } else if (response.getStatus() == 401) {
-            errorType = "Unauthorized";
-        } else if (response.getStatus() == 403) {
-            errorType = "Forbidden";
-        } else if (response.getStatus() == 429) {
-            errorType = "RateLimitExceeded";
-        } else if (response.getStatus() == 503) {
-            errorType = "ServiceUnavailable";
-        } else if (response.getStatus() == 504) {
-            errorType = "GatewayTimeout";
-        } else if (response.getStatus() == 502) {
-            errorType = "BadGateway";
-        }
-        return errorType;
+        return switch (response.getStatus()) {
+            case 500 -> "InternalServerError";
+            case 408 -> "Timeout";
+            case 404 -> "NameResolutionError";
+            case 400 -> "BadRequest";
+            case 401 -> "Unauthorized";
+            case 403 -> "Forbidden";
+            case 429 -> "RateLimitExceeded";
+            case 503 -> "ServiceUnavailable";
+            case 504 -> "GatewayTimeout";
+            case 502 -> "BadGateway";
+            default -> ex != null ? ex.getClass().getSimpleName() : null;
+        };
     }
 }

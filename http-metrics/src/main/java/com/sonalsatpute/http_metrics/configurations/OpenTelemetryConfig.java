@@ -32,9 +32,13 @@ public class OpenTelemetryConfig {
                 .registerMetricReader(PeriodicMetricReader.builder(metricExporter).build())
                 .build();
 
-        return OpenTelemetrySdk.builder()
+        OpenTelemetrySdk openTelemetry = OpenTelemetrySdk.builder()
                 .setMeterProvider(meterProvider)
                 .buildAndRegisterGlobal();
+
+        Runtime.getRuntime().addShutdownHook(new Thread(openTelemetry::close));
+
+        return openTelemetry;
     }
 
     @Bean
