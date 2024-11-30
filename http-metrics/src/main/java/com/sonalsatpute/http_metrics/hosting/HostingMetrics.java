@@ -1,15 +1,23 @@
-﻿package com.sonalsatpute.http_metrics.hosting;
+package com.sonalsatpute.http_metrics.hosting;
 
-import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.*;
+import org.springframework.stereotype.Component;
 
 import java.util.Set;
+
+import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
+import static io.opentelemetry.semconv.HttpAttributes.*;
+import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_VERSION;
+import static io.opentelemetry.semconv.UrlAttributes.URL_SCHEME;
+import static io.opentelemetry.semconv.UserAgentAttributes.USER_AGENT_ORIGINAL;
 
 //Reference C# implementation:
 // https://github.com/dotnet/aspnetcore/blob/81a2bab8704d87d324039b42eb1bab0d977f25b8/src/Hosting/Hosting/src/Internal/HostingMetrics.cs
 //
 
+@Component
 public final class HostingMetrics {
 
     public static final String HOSTING_METER_NAME = "spring-boot.hosting";
@@ -20,32 +28,21 @@ public final class HostingMetrics {
 
     private final DoubleHistogram durationHistogram;
     private final LongUpDownCounter activeRequestCounter;
-    private static final String UNKNOWN_METHOD = "_OTHER";
-
     private static final Set<String> KnownMethods;
 
     static {
         KnownMethods = Set.of(
-                "CONNECT",
-                "DELETE",
-                "GET",
-                "HEAD",
-                "OPTIONS",
-                "PATCH",
-                "POST",
-                "PUT",
-                "TRACE"
+                HttpRequestMethodValues.CONNECT,
+                HttpRequestMethodValues.DELETE,
+                HttpRequestMethodValues.GET,
+                HttpRequestMethodValues.HEAD,
+                HttpRequestMethodValues.OPTIONS,
+                HttpRequestMethodValues.PATCH,
+                HttpRequestMethodValues.POST,
+                HttpRequestMethodValues.PUT,
+                HttpRequestMethodValues.TRACE
         );
     }
-
-    private static final Integer[] boxedStatusCodes = new Integer[512];
-
-
-
-    private static final AttributeKey<String> SCHEME = AttributeKey.stringKey("scheme");
-    private static final AttributeKey<String> METHOD = AttributeKey.stringKey("method");
-
-    private Attributes attributes;
 
     public HostingMetrics(MeterProvider meterProvider) {
         this.activeRequestCounter = buildActiveRequestCounter(meterProvider);
@@ -53,12 +50,12 @@ public final class HostingMetrics {
     }
 
     public void requestStart(String scheme, String method, Attributes customAttributes) {
-        attributes = Attributes.builder()
-                .putAll(Attributes.of(SCHEME, scheme, METHOD, resolveHttpMethod(method)))
-                .putAll(customAttributes)
-                .build();
-
-        activeRequestCounter.add(1, attributes);
+        activeRequestCounter.add(1,
+                Attributes.builder()
+                        .putAll(customAttributes)
+                        .putAll(Attributes.of(URL_SCHEME, scheme, HTTP_REQUEST_METHOD, resolveHttpMethod(method)))
+                        .build()
+        );
     }
 
     public void requestEnd(String protocol,
@@ -66,12 +63,43 @@ public final class HostingMetrics {
                            String method,
                            String route,
                            int statusCode,
-                           boolean unhandledRequest,
+//                           boolean unhandledRequest,
+                           String userAgent,
                            Exception exception,
                            Attributes customAttributes,
                            long startTimestamp,
                            long currentTimestamp,
                            boolean disableHttpRequestDurationMetric){
+
+        Attributes attributes = Attributes.builder()
+                .putAll(customAttributes) // Add before some built in tags so custom tags are prioritized when dealing with duplicates.
+                .putAll(Attributes.of(URL_SCHEME, scheme, HTTP_REQUEST_METHOD, resolveHttpMethod(method)))
+                .build();
+
+        activeRequestCounter.add(-1, attributes);
+
+        if (!disableHttpRequestDurationMetric) {
+
+            AttributesBuilder attributesBuilder = Attributes.builder()
+                    .putAll(attributes)
+                    .put(NETWORK_PROTOCOL_VERSION , protocol)
+                    .put(HTTP_RESPONSE_STATUS_CODE, statusCode)
+                    .put(HTTP_ROUTE, route)
+                    .put(USER_AGENT_ORIGINAL, userAgent);
+
+
+            // This exception is only present if there is an unhandled exception.
+            // An exception caught by ExceptionHandlerMiddleware and DeveloperExceptionMiddleware isn't thrown to here.
+            // Instead, those middleware add error.type to custom tags.
+            if (exception != null) {
+                // Exception tag could have been added by middleware. If an exception is later thrown in a request pipeline,
+                // then we don't want to add a duplicate tag here because that breaks some metrics systems.
+                attributesBuilder.put(ERROR_TYPE, exception.getClass().getName());
+            }
+
+            long duration = currentTimestamp - startTimestamp;
+            durationHistogram.record(duration, attributesBuilder.build());
+        }
 
     }
 
@@ -99,17 +127,6 @@ public final class HostingMetrics {
         String methodUpperCase = method.toUpperCase();
         return KnownMethods.contains(methodUpperCase)
                 ? methodUpperCase
-                : UNKNOWN_METHOD;
+                : HttpRequestMethodValues.OTHER;
     }
-
-    private static Integer getBoxedStatusCode(int statusCode) {
-        if (statusCode >= 0 && statusCode < boxedStatusCodes.length) {
-            if (boxedStatusCodes[statusCode] == null) {
-                boxedStatusCodes[statusCode] = statusCode;
-            }
-            return boxedStatusCodes[statusCode];
-        }
-        return statusCode;
-    }
-
 }
