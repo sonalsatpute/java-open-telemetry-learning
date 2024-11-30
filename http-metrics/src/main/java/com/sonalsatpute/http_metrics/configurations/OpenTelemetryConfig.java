@@ -1,5 +1,6 @@
 package com.sonalsatpute.http_metrics.configurations;
 
+import com.sonalsatpute.http_metrics.hosting.HostingMetrics;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.metrics.MeterProvider;
 import io.opentelemetry.exporter.otlp.metrics.OtlpGrpcMetricExporter;
@@ -31,7 +32,6 @@ public class OpenTelemetryConfig {
         SdkMeterProvider meterProvider = SdkMeterProvider.builder()
                 .setResource(resource)
                 .registerMetricReader(PeriodicMetricReader.builder(metricExporter).build())
-
                 .build();
 
         OpenTelemetrySdk openTelemetry = OpenTelemetrySdk.builder()
@@ -40,11 +40,17 @@ public class OpenTelemetryConfig {
 
         Runtime.getRuntime().addShutdownHook(new Thread(openTelemetry::close));
 
+
         return openTelemetry;
     }
 
     @Bean
     public MeterProvider meterProvider(OpenTelemetry openTelemetry) {
         return openTelemetry.getMeterProvider();
+    }
+
+    @Bean
+    public HostingMetrics hostingMetrics(MeterProvider meterProvider) {
+        return new HostingMetrics(meterProvider);
     }
 }

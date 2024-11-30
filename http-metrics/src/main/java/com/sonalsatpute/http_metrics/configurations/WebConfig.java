@@ -1,5 +1,6 @@
 package com.sonalsatpute.http_metrics.configurations;
 
+import com.sonalsatpute.http_metrics.interceptors.MetricsInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;

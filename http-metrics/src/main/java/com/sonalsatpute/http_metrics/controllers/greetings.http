@@ -1,4 +1,4 @@
-﻿GET localhost:8080/greeting/world!?pageSize=10&pageIndex=0
+﻿GET localhost:8080/greeting/World!?pageSize=10&pageIndex=0
 Accept: application/json
 Referer: http://fake-referer.com
 X-TenantId: 1110
@@ -7,7 +7,7 @@ User-Agent: sonalsatpute/1.0
 
 ###
 
-GET localhost:8080/greeting/Sparshika?pageSize=100&pageIndex=7
+GET localhost:8080/greeting/sonal?pageSize=100&pageIndex=7
 Accept: application/json
 Referer: http://fake-referer.com
 X-TenantId: 1117
