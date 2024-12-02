@@ -1,8 +1,9 @@
-package com.sonalsatpute.http_metrics.hosting;
+package com.sonalsatpute.observability.hosting;
 
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.*;
+import io.opentelemetry.semconv.TelemetryAttributes;
 import org.springframework.stereotype.Component;
 
 import java.util.Set;
@@ -10,6 +11,7 @@ import java.util.Set;
 import static io.opentelemetry.semconv.ErrorAttributes.ERROR_TYPE;
 import static io.opentelemetry.semconv.HttpAttributes.*;
 import static io.opentelemetry.semconv.NetworkAttributes.NETWORK_PROTOCOL_VERSION;
+import static io.opentelemetry.semconv.TelemetryAttributes.TELEMETRY_SDK_LANGUAGE;
 import static io.opentelemetry.semconv.UrlAttributes.URL_SCHEME;
 import static io.opentelemetry.semconv.UserAgentAttributes.USER_AGENT_ORIGINAL;
 
@@ -50,12 +52,17 @@ public final class HostingMetrics {
     }
 
     public void requestStart(String scheme, String method, Attributes customAttributes) {
-        activeRequestCounter.add(1,
-                Attributes.builder()
-                        .putAll(customAttributes)
-                        .putAll(Attributes.of(URL_SCHEME, scheme, HTTP_REQUEST_METHOD, resolveHttpMethod(method)))
-                        .build()
-        );
+        System.out.println("Request started");
+        activeRequestCounter.add(1, buildRequestAttributes(scheme, method, customAttributes));
+    }
+
+    private static Attributes buildRequestAttributes(String scheme, String method, Attributes customAttributes) {
+        return Attributes.builder()
+                .putAll(customAttributes)
+                .put(URL_SCHEME, scheme)
+                .put(HTTP_REQUEST_METHOD, resolveHttpMethod(method))
+                .put(TELEMETRY_SDK_LANGUAGE, TelemetryAttributes.TelemetrySdkLanguageValues.JAVA)
+                .build();
     }
 
     public void requestEnd(String protocol,
@@ -70,10 +77,11 @@ public final class HostingMetrics {
                            long startTimestamp,
                            long currentTimestamp,
                            boolean disableHttpRequestDurationMetric){
+        System.out.println("Request ended");
 
         Attributes attributes = Attributes.builder()
                 .putAll(customAttributes) // Add before some built in tags so custom tags are prioritized when dealing with duplicates.
-                .putAll(Attributes.of(URL_SCHEME, scheme, HTTP_REQUEST_METHOD, resolveHttpMethod(method)))
+                .putAll(buildRequestAttributes(scheme, method, customAttributes))
                 .build();
 
         activeRequestCounter.add(-1, attributes);
@@ -99,6 +107,8 @@ public final class HostingMetrics {
 
             long duration = currentTimestamp - startTimestamp;
             durationHistogram.record(duration, attributesBuilder.build());
+
+            System.out.println("Duration recorded: " + duration + " milliseconds");
         }
 
     }
@@ -108,7 +118,7 @@ public final class HostingMetrics {
                 .get(HOSTING_METER_NAME)
                 .histogramBuilder(REQUEST_DURATION)
                 .setDescription("Duration of HTTP requests")
-                .setUnit(DURATION_HISTOGRAM_UNIT)
+//                .setUnit(DURATION_HISTOGRAM_UNIT)
                 .setExplicitBucketBoundariesAdvice(MetricsConstants.ShortSecondsBucketBoundaries)
                 .build();
     }
@@ -118,7 +128,7 @@ public final class HostingMetrics {
                 .get(HOSTING_METER_NAME)
                 .upDownCounterBuilder(ACTIVE_REQUEST_COUNT)
                 .setDescription("Active HTTP requests")
-                .setUnit(ACTIVE_REQUEST_COUNTER_UNIT)
+//                .setUnit(ACTIVE_REQUEST_COUNTER_UNIT)
                 .build();
     }
 

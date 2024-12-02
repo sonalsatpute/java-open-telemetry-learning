@@ -1,6 +1,6 @@
-package com.sonalsatpute.http_metrics.interceptors;
+package com.sonalsatpute.observability.interceptors;
 
-import com.sonalsatpute.http_metrics.hosting.HostingMetrics;
+import com.sonalsatpute.observability.hosting.HostingMetrics;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.common.Attributes;
